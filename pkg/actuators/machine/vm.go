@@ -479,6 +479,12 @@ func createVM(ctx context.Context, mscp *machineScope, userData []byte) (*vmmMod
 		return nil, fmt.Errorf("building v4 VM spec: %w", err)
 	}
 
+    if payloadBytes, err := json.MarshalIndent(vm, "", "  "); err == nil {
+	    klog.Infof(">>> NUTANIX V4 VM CREATE PAYLOAD:\n%s\n<<< END PAYLOAD", string(payloadBytes))
+	} else {
+	    klog.Errorf("Failed to marshal VM create payload for logging: %v", err)
+	}
+	
 	klog.V(3).Infof("Creating VM %q with converged client.", vmName)
 	created, err := mscp.nutanixClient.VMs.Create(ctx, v4vm)
 	if err != nil {
