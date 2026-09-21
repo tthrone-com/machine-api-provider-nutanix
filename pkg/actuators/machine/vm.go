@@ -666,27 +666,56 @@ func buildV4VMFromScope(ctx context.Context, mscp *machineScope, userdataEncoded
 		klog.V(3).Infof("VM %q: setting project reference to %s", vmName, *spec.Project.UUID)
 	}
 
-	// Guest customization (cloud-init)
+	
 	cloudInit := vmmModels.NewCloudInit()
-	metadataJSON, err := json.Marshal(map[string]string{"hostname": vmName})
-	if err != nil {
-		return nil, fmt.Errorf("marshalling cloud-init metadata: %w", err)
-	}
-	cloudInit.Metadata = ptr.To(base64.StdEncoding.EncodeToString(metadataJSON))
-	// CONFIG_DRIVE_V2 is the standard datasource type used by OpenStack and
-	// Nutanix AHV for delivering cloud-init metadata/userdata via an attached
-	// virtual CD-ROM. This matches the Nutanix v4 API default and is required
-	// for RHCOS ignition-based provisioning on AHV.
-	cloudInit.DatasourceType = vmmModels.CLOUDINITDATASOURCETYPE_CONFIG_DRIVE_V2.Ref()
+    metadataJSON, err := json.Marshal(map[string]string{"hostname": vmName})
+    if err != nil {
+        return nil, fmt.Errorf("marshalling cloud-init metadata: %w", err)
+    }
+    cloudInit.Metadata = ptr.To(base64.StdEncoding.EncodeToString(metadataJSON))
+    cloudInit.DatasourceType = vmmModels.CLOUDINITDATASOURCETYPE_CONFIG_DRIVE_V2.Ref()
 
-	userDataFixed := fmt.Sprintf("#cloud-config\r\n\r\n%s", userDataEncoded)
-	userData := vmmModels.NewUserdata()
-	userData.Value = &userdataFixed
-	_ = cloudInit.SetCloudInitScript(*userData)
-	cloudInit.CloudInitScriptItemDiscriminator_ = nil
-	vm.GuestCustomization = vmmModels.NewGuestCustomizationParams()
-	_ = vm.GuestCustomization.SetConfig(*cloudInit)
-	vm.GuestCustomization.ConfigItemDiscriminator_ = nil
+    // 2. Decode raw ignition JSON from input
+    rawIgnition, err := base64.StdEncoding.DecodeString(userdataEncoded)
+    if err != nil {
+        return nil, fmt.Errorf("decoding userdata: %w", err)
+    }
+
+    // 3. Assemble clean RFC-compliant MIME Multipart
+    boundary := "IGNITION_MIME_BOUNDARY"
+    multipartUserData := fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n"+
+        "MIME-Version: 1.0\r\n\r\n"+
+        "--%s\r\n"+
+        "Content-Type: text/cloud-config; charset=\"utf-8\"\r\n"+
+        "MIME-Version: 1.0\r\n"+
+        "Content-Transfer-Encoding: 7bit\r\n"+
+        "Content-Disposition: attachment; filename=\"dummy.txt\"\r\n\r\n"+
+        "#cloud-config\r\n\r\n"+
+        "--%s\r\n"+
+        "Content-Type: text/ignition; charset=\"utf-8\"\r\n"+
+        "MIME-Version: 1.0\r\n"+
+        "Content-Transfer-Encoding: 7bit\r\n"+
+        "Content-Disposition: attachment; filename=\"user_data.ign\"\r\n\r\n"+
+        "%s\r\n"+
+        "--%s--\r\n",
+        boundary, boundary, boundary, string(rawIgnition), boundary)
+
+    // 4. Attach script
+    userData := vmmModels.NewUserdata()
+    userData.Value = ptr.To(multipartUserData)
+    if err := cloudInit.SetCloudInitScript(*userData); err != nil {
+        return nil, fmt.Errorf("setting cloud-init script: %w", err)
+    }
+    cloudInit.CloudInitScriptItemDiscriminator_ = nil
+
+    // 5. Wrap in GuestCustomizationParams
+    gcParams := vmmModels.NewGuestCustomizationParams()
+    if err := gcParams.SetConfig(*cloudInit); err != nil {
+        return nil, fmt.Errorf("setting guest customization config: %w", err)
+    }
+    gcParams.ConfigItemDiscriminator_ = nil
+
+    vm.GuestCustomization = gcParams
 
 	return vm, nil
 }
