@@ -699,10 +699,10 @@ func buildV4VMFromScope(ctx context.Context, mscp *machineScope, userdataEncoded
         "%s\r\n"+
         "--%s--\r\n",
         boundary, boundary, boundary, string(rawIgnition), boundary)
-
+	encodedMultipartUserData := base64.StdEncoding.EncodeToString([]byte(multipartUserData))
     // 4. Attach script
     userData := vmmModels.NewUserdata()
-    userData.Value = ptr.To(multipartUserData)
+    userData.Value = ptr.To(encodedMultipartUserData)
     if err := cloudInit.SetCloudInitScript(*userData); err != nil {
         return nil, fmt.Errorf("setting cloud-init script: %w", err)
     }
