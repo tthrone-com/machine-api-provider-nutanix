@@ -479,7 +479,7 @@ func createVM(ctx context.Context, mscp *machineScope, userData []byte) (*vmmMod
 		return nil, fmt.Errorf("building v4 VM spec: %w", err)
 	}
 
-    if payloadBytes, err := json.MarshalIndent(vm, "", "  "); err == nil {
+    if payloadBytes, err := json.MarshalIndent(v4vm, "", "  "); err == nil {
 	    klog.Infof(">>> NUTANIX V4 VM CREATE PAYLOAD:\n%s\n<<< END PAYLOAD", string(payloadBytes))
 	} else {
 	    klog.Errorf("Failed to marshal VM create payload for logging: %v", err)
